@@ -1,5 +1,8 @@
-ORG 0
+ORG 0x7c0
 BITS 16
+
+CODE_SEG equ gdt_code - gdt_start
+DATA_SEG equ gdt_data - gdt_start
 
 _start:
   jmp short start
@@ -8,54 +11,67 @@ _start:
 times 33 db 0
 
 start:
-  jmp 0x7c0:step2
-
-handle_zero:
-  mov ah, 0eh
-  mov al, '0'
-  mov bx, 0x00
-  int 0x10
-  iret
+  jmp 0:step2
 
 step2:
   cli ; clear interrupts, we dont want to hardware interrupt, cause we are going change some segments registers
-  mov ax, 0x7c0
+  mov ax, 0x00
   mov ds, ax
   mov es, ax
-  mov ax, 0x00
   mov ss, ax
   mov sp, 0x7c00
-  sti ; enables interrupts 
+  sti ; enables interrupts  
 
-  mov word[ss:0x00], handle_zero
-  mov word[ss:0x02], 0x7c0
-  
-  int 0
+.load_protected:
+  cli
+  lgdt[gdt_descriptor] ; load global descriptor table
+  mov eax, cr0
+  or eax, 0x1
+  mov cr0, eax
+  jmp CODE_SEG:load32
 
-  mov si, message
-  call print
+
+; GDT
+gdt_start:
+gdt_null:
+  dd 0x0
+  dd 0x0
+; offset 0x8
+gdt_code: ; CS SHOULD POINT TO THIS
+  dw 0xffff ; Segment limit first 0-15
+  dw 0 ; Base first 0-15 bits
+  db 0 ; Base 16-23 bits
+  db 0x9a ; Acess byte
+  db 11001111b ; High 4 bit flag and the low 4 bit flag
+  db 0 ; Base 24-31 bits
+
+; offset 0x10
+gdt_data: ; DS, ES, SS, FS, GS
+  dw 0xffff ; Segment limit first 0-15
+  dw 0 ; Base first 0-15 bits
+  db 0 ; Base 16-23 bits
+  db 0x92 ; Acess byte
+  db 11001111b ; High 4 bit flag and the low 4 bit flag
+  db 0 ; Base 24-31 bits
+
+gdt_end:
+
+gdt_descriptor:
+  dw gdt_end - gdt_start - 1 ; size
+  dd gdt_start ; when we load gdt, it looks for the size and the offset <- then loads 
+
+[BITS 32]
+load32:
+  mov ax, DATA_SEG
+  mov ds, ax
+  mov es, ax
+  mov ss, ax
+  mov fs, ax
+  mov gs, ax
+  mov ebp, 0x00200000
+  mov esp, ebp
   jmp $
 
-print: 
-  mov bx, 0
-
-.loop:
-  lodsb
-  cmp al, 0
-  je .done
-  call print_char
-  jmp .loop
-
-.done:
-  ret
-
-print_char: 
-  mov ah, 0eh
-  int 0x10
-  ret
-
-
-message: db 'Hello World', 0
 
 times 510-($ - $$) db 0
 dw 0xAA55
